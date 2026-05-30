@@ -31,7 +31,7 @@ app.use((req, res, next) => {
 
 const BITVAVO_API = 'https://api.bitvavo.com/v2';
 const POS_FILE = '/tmp/alphajo_positions.json';   // simpele opslag
-const MAX_ORDER_EUR = 100;                         // veiligheidslimiet per order
+const MAX_ORDER_EUR = 25;                         // veiligheidslimiet per order
 
 // ── TELEGRAM MELDINGEN (optioneel) ──
 // Vul deze in op Render onder "Environment" of hieronder direct.
