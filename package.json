@@ -1,0 +1,15 @@
+{
+  "name": "alphajo-order-server",
+  "version": "1.0.0",
+  "description": "Veilige order-server die AlphaJo bot-signalen ondertekent en doorstuurt naar Bitvavo",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
