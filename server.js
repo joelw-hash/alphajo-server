@@ -68,7 +68,13 @@ function signRequest(secret, timestamp, method, urlPath, body) {
 
 async function bitvavoBuy(apiKey, apiSecret, market, amountQuote) {
   const timestamp = Date.now();
-  const body = { market, side: 'buy', orderType: 'market', amountQuote: String(amountQuote) };
+  const body = {
+    market,
+    side: 'buy',
+    orderType: 'market',
+    amountQuote: String(amountQuote),
+    operatorId: 10001   // verplicht door Bitvavo (eigen getal, voor audit trail)
+  };
   const signature = signRequest(apiSecret, timestamp, 'POST', '/order', body);
   const r = await fetch(BITVAVO_API + '/order', {
     method: 'POST',
@@ -87,7 +93,13 @@ async function bitvavoBuy(apiKey, apiSecret, market, amountQuote) {
 // Sluit een positie door de aangehouden hoeveelheid coin te verkopen
 async function bitvavoSell(apiKey, apiSecret, market, amountBase) {
   const timestamp = Date.now();
-  const body = { market, side: 'sell', orderType: 'market', amount: String(amountBase) };
+  const body = {
+    market,
+    side: 'sell',
+    orderType: 'market',
+    amount: String(amountBase),
+    operatorId: 10001   // verplicht door Bitvavo
+  };
   const signature = signRequest(apiSecret, timestamp, 'POST', '/order', body);
   const r = await fetch(BITVAVO_API + '/order', {
     method: 'POST',
@@ -158,8 +170,27 @@ app.post('/order', async (req, res) => {
     } else {
       // directe verkoop op verzoek van de bot
       const pos = positions.find(p => p.market === market);
-      const amountBase = pos ? pos.amountBase : null;
-      if (!amountBase) return res.status(404).json({ error: 'Geen bekende hoeveelheid voor ' + market });
+      let amountBase = pos ? pos.amountBase : null;
+
+      // Niet bekend bij server? Haal de echte coin-hoeveelheid op via Bitvavo balans
+      if (!amountBase) {
+        try {
+          const coin = market.split('-')[0];
+          const ts2 = Date.now();
+          const sig2 = signRequest(apiSecret, ts2, 'GET', '/balance', null);
+          const balRes = await fetch(BITVAVO_API + '/balance', {
+            headers: { 'Bitvavo-Access-Key': apiKey, 'Bitvavo-Access-Signature': sig2, 'Bitvavo-Access-Timestamp': String(ts2), 'Bitvavo-Access-Window': '10000' }
+          });
+          const balData = await balRes.json();
+          const coinBal = Array.isArray(balData) ? balData.find(b => b.symbol === coin) : null;
+          amountBase = coinBal ? parseFloat(coinBal.available) : null;
+          if (amountBase) console.log('Hoeveelheid opgezocht via balans: ' + coin + ' = ' + amountBase);
+        } catch (e) { console.error('Balans ophalen mislukt:', e.message); }
+      }
+
+      if (!amountBase || amountBase <= 0) {
+        return res.status(404).json({ error: 'Geen ' + market.split('-')[0] + ' beschikbaar om te verkopen' });
+      }
       const data = await bitvavoSell(apiKey, apiSecret, market, amountBase);
       positions = positions.filter(p => p.market !== market);
       savePositions();
