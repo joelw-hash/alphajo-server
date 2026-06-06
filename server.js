@@ -52,7 +52,9 @@ async function notify(msg) {
 
 // ── Exit-regels (zelfde als in de bot) ──
 const STOP_LOSS_PCT = 0.25;   // -25%
-const TAKE_PROFIT_PCT = 0.20; // +20%
+const TAKE_PROFIT_PCT = 0.10; // +10%
+const MIN_PROFIT_EUR = 3;     // auto-verkoop bij TP alleen als netto (na fees) >= dit
+const FEE_ROUNDTRIP = 0.005;  // 0,5% heen + terug
 const TRAIL_ACT = 0.08;       // trailing start bij +8%
 const TRAIL_PCT = 0.05;       // trailing afstand 5%
 const MAX_HOLD_MS = 5 * 60 * 1000; // 5 min
@@ -192,6 +194,8 @@ app.post('/order', async (req, res) => {
         return res.status(404).json({ error: 'Geen ' + market.split('-')[0] + ' beschikbaar om te verkopen' });
       }
       const data = await bitvavoSell(apiKey, apiSecret, market, amountBase);
+      const soldEur = pos ? (amountBase * (await getPrice(market))).toFixed(2) : null;
+      notify('🔵 <b>VERKOCHT</b>\n' + market + (soldEur ? '\nWaarde: ~€' + soldEur : '') + '\nVerkoop uitgevoerd op Bitvavo.');
       positions = positions.filter(p => p.market !== market);
       savePositions();
       return res.json(data);
@@ -255,13 +259,16 @@ async function monitorLoop() {
       const pct = (price - pos.entryPrice) / pos.entryPrice;
       let reden = null;
 
-      if (pct >= TAKE_PROFIT_PCT) reden = 'Take-profit +' + (pct * 100).toFixed(1) + '%';
-      else if (pct <= -STOP_LOSS_PCT) reden = 'Stop-loss ' + (pct * 100).toFixed(1) + '%';
-      else if (pct >= TRAIL_ACT) {
-        if (price > pos.highWater) { pos.highWater = price; pos.trailStop = price * (1 - TRAIL_PCT); savePositions(); }
-        if (pos.trailStop && price <= pos.trailStop) reden = 'Trailing stop +' + (((pos.trailStop - pos.entryPrice) / pos.entryPrice) * 100).toFixed(1) + '%';
+      // Netto winst in euro's (entry-waarde × pct − fees)
+      const posEur = pos.entryPrice * pos.amountBase;
+      const netEur = pct * posEur - posEur * FEE_ROUNDTRIP;
+
+      // TAKE-PROFIT: +10% én netto winst >= €3
+      if (pct >= TAKE_PROFIT_PCT && netEur >= MIN_PROFIT_EUR) {
+        reden = 'Take-profit +' + (pct * 100).toFixed(1) + '% (€' + netEur.toFixed(2) + ' netto)';
       }
-      if (!reden && (Date.now() - pos.openTime) >= MAX_HOLD_MS && pct < TRAIL_ACT * 0.3) reden = 'Tijdslimiet 5 min';
+      // STOP-LOSS
+      else if (pct <= -STOP_LOSS_PCT) reden = 'Stop-loss ' + (pct * 100).toFixed(1) + '%';
 
       if (reden) {
         console.log('[' + new Date().toISOString() + '] AUTO-SLUIT ' + pos.market + ' (' + reden + ') @ ' + price);
